@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feedback Board</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const firebaseConfig = {
+            apiKey: "AIzaSyDfNMy4lei6bdQP_xMoRAiuKMlI-T9G1qg",
+            authDomain: "feedbackboard-e0132.firebaseapp.com",
+            databaseURL: "https://feedbackboard-e0132-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "feedbackboard-e0132",
+            storageBucket: "feedbackboard-e0132.appspot.com",
+            messagingSenderId: "1048046659413",
+            appId: "1:1048046659413:web:60e7f4466b9b94173631dc"
+        };
+
+        let database;
+        try {
+            const app = firebase.initializeApp(firebaseConfig);
+            database = firebase.database();
+            console.log("Firebase initialized successfully");
+        } catch (error) {
+            console.error("Firebase initialization error:", error);
+            alert("Error initializing Firebase. Please check your configuration.");
+        }
+
+        function ThemeToggle({ theme, toggleTheme }) {
+            return (
+                <button className="theme-toggle" onClick={toggleTheme}>
+                    {theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}
+                </button>
+            );
+        }
+
+        function FeedbackForm({ onSubmit }) {
+            const [formData, setFormData] = React.useState({
+                name: '',
+                email: '',
+                comment: ''
+            });
+            const [showSuccess, setShowSuccess] = React.useState(false);
+            const [error, setError] = React.useState('');
+
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+                setError('');
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+
+                if (!formData.name || !formData.email || !formData.comment) {
+                    setError('Please fill in all fields');
+                    return;
+                }
+
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+                    setError('Please enter a valid email address');
+                    return;
+                }
+
+                try {
+                    await onSubmit(formData);
+                    setFormData({ name: '', email: '', comment: '' });
+                    setShowSuccess(true);
+                    setTimeout(() => setShowSuccess(false), 3000);
+                } catch (error) {
+                    setError('Error submitting feedback. Please try again.');
+                    console.error('Submission error:', error);
+                }
+            };
+
+            return (
+                <form className="feedback-form" onSubmit={handleSubmit}>
+                    {error && <div className="error-message">{error}</div>}
+                    <div className="form-group">
+                        <label htmlFor="name">Name</label>
+                        <input
+                            type="text"
+                            id="name"
+                            name="name"
+                            value={formData.name}
+                            onChange={handleChange}
+                            required
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label htmlFor="email">Email</label>
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            value={formData.email}
+                            onChange={handleChange}
+                            required
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label htmlFor="comment">Comment</label>
+                        <textarea
+                            id="comment"
+                            name="comment"
+                            value={formData.comment}
+                            onChange={handleChange}
+                            required
+                        />
+                    </div>
+                    <button type="submit" className="submit-btn">Submit Feedback</button>
+                    {showSuccess && (
+                        <div className="success-message show">
+                            Feedback submitted successfully!
+                        </div>
+                    )}
+                </form>
+            );
+        }
+
+        function FeedbackItem({ feedback, onDelete }) {
+            return (
+                <div className="feedback-item">
+                    <h3>{feedback.name}</h3>
+                    <p>{feedback.comment}</p>
+                    <p className="email">{feedback.email}</p>
+                    {feedback.timestamp && (
+                        <p className="timestamp">
+                            {new Date(feedback.timestamp).toLocaleString()}
+                        </p>
+                    )}
+                    <button className="delete-btn" onClick={() => onDelete(feedback.id)}>
+                        Delete
+                    </button>
+                </div>
+            );
+        }
+
+        function FeedbackList({ feedbacks, onDelete }) {
+            if (!feedbacks || feedbacks.length === 0) {
+                return <p className="no-feedback">No feedback yet. Be the first to submit!</p>;
+            }
+
+            return (
+                <div className="feedback-list">
+                    {feedbacks.map(feedback => (
+                        <FeedbackItem
+                            key={feedback.id}
+                            feedback={feedback}
+                            onDelete={onDelete}
+                        />
+                    ))}
+                </div>
+            );
+        }
+
+        function App() {
+            const [theme, setTheme] = React.useState('light');
+            const [feedbacks, setFeedbacks] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [error, setError] = React.useState(null);
+
+            React.useEffect(() => {
+                const savedTheme = localStorage.getItem('theme') || 'light';
+                setTheme(savedTheme);
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            }, []);
+
+            React.useEffect(() => {
+                if (!database) {
+                    setError("Firebase is not initialized");
+                    setLoading(false);
+                    return;
+                }
+
+                const feedbacksRef = database.ref('feedbacks');
+                feedbacksRef.on('value', (snapshot) => {
+                    try {
+                        const data = snapshot.val();
+                        if (data) {
+                            const feedbacksArray = Object.entries(data).map(([id, feedback]) => ({
+                                id,
+                                ...feedback
+                            }));
+                            setFeedbacks(feedbacksArray);
+                        } else {
+                            setFeedbacks([]);
+                        }
+                        setError(null);
+                    } catch (error) {
+                        console.error("Error processing feedback data:", error);
+                        setError("Error loading feedbacks");
+                    } finally {
+                        setLoading(false);
+                    }
+                });
+
+                return () => feedbacksRef.off();
+            }, []);
+
+            const toggleTheme = () => {
+                const newTheme = theme === 'light' ? 'dark' : 'light';
+                setTheme(newTheme);
+                localStorage.setItem('theme', newTheme);
+                document.documentElement.setAttribute('data-theme', newTheme);
+            };
+
+            const handleSubmit = async (formData) => {
+                if (!database) {
+                    throw new Error("Firebase is not initialized");
+                }
+
+                const feedbacksRef = database.ref('feedbacks');
+                await feedbacksRef.push({
+                    ...formData,
+                    timestamp: firebase.database.ServerValue.TIMESTAMP
+                });
+            };
+
+            const handleDelete = async (id) => {
+                if (!database) {
+                    throw new Error("Firebase is not initialized");
+                }
+
+                try {
+                    await database.ref(`feedbacks/${id}`).remove();
+                } catch (error) {
+                    console.error('Error deleting feedback:', error);
+                    throw error;
+                }
+            };
+
+            return (
+                <div className="container">
+                    <header className="header">
+                        <h1>Feedback Board</h1>
+                        <ThemeToggle theme={theme} toggleTheme={toggleTheme} />
+                    </header>
+                    <FeedbackForm onSubmit={handleSubmit} />
+                    {loading && <p className="loading">Loading feedbacks...</p>}
+                    {error && <p className="error">Error: {error}</p>}
+                    <FeedbackList feedbacks={feedbacks} onDelete={handleDelete} />
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
